@@ -1,0 +1,21 @@
+{
+  "name": "StreamFlow Music",
+  "short_name": "StreamFlow",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#141414",
+  "theme_color": "#141414",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://api.iconify.design/lucide:music.svg?color=%23dc2626",
+      "type": "image/svg+xml",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://api.iconify.design/lucide:music.svg?color=%23dc2626",
+      "type": "image/svg+xml",
+      "sizes": "512x512"
+    }
+  ]
+}

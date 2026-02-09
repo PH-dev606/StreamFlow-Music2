@@ -1,0 +1,5 @@
+{
+  "name": "StreamFlow Music",
+  "description": "Uma experiência de streaming de música imersiva com interface estilo Netflix e reprodução estilo YouTube, alimentada por IA.",
+  "requestFramePermissions": []
+}
