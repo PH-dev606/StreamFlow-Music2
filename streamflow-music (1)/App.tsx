@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Play, WifiOff, Download, AlertTriangle, Key } from 'lucide-react';
 import Navbar from './components/Navbar';
@@ -130,22 +131,21 @@ const App: React.FC = () => {
     setSearchResults(null);
     setArtistView(null);
     
-    // Timeout pequeno para garantir que a home renderizou antes do scroll
     setTimeout(() => {
       const element = document.getElementById(id);
       if (element) {
-        const offset = 100; // Espaço para a Navbar
-        const bodyRect = document.body.getBoundingClientRect().top;
-        const elementRect = element.getBoundingClientRect().top;
-        const elementPosition = elementRect - bodyRect;
+        const offset = 90;
+        const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
         const offsetPosition = elementPosition - offset;
 
         window.scrollTo({
           top: offsetPosition,
           behavior: 'smooth'
         });
+      } else if (id === 'top') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
-    }, 50);
+    }, 100);
   };
 
   if (!currentProfile) return <ProfileSelector profiles={profiles} onSelect={setCurrentProfile} onRefreshProfiles={refreshProfiles} />;
@@ -276,7 +276,7 @@ const App: React.FC = () => {
               
               {initialLoading ? (
                 <div className="px-12 space-y-12">
-                   {[1,2].map(i => (
+                   {[1,2,3].map(i => (
                      <div key={i} className="space-y-4">
                         <div className="h-8 w-48 bg-neutral-800 rounded animate-pulse" />
                      </div>
