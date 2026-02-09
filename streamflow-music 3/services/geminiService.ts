@@ -2,6 +2,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AppData, MusicItem, Category, ArtistDetails, SearchResponse } from "../types";
 
+// Chave fornecida pelo usuário para o YouTube
+const YOUTUBE_API_KEY = "AIzaSyDgOYCC_pel2Q_uyTLxp_NZjkvbGeWwKAs";
+
 const getImageUrl = (keyword: string, width: number, height: number) => {
   let hash = 0;
   for (let i = 0; i < keyword.length; i++) {
@@ -16,9 +19,23 @@ const createAiClient = () => {
   return new GoogleGenAI({ apiKey: apiKey || "" });
 };
 
+// Busca real no YouTube
+const searchYouTube = async (query: string) => {
+  try {
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=8&q=${encodeURIComponent(query)}&type=video&key=${YOUTUBE_API_KEY}`
+    );
+    const data = await response.json();
+    return data.items || [];
+  } catch (e) {
+    console.error("YouTube API Error", e);
+    return [];
+  }
+};
+
 export const fetchHomeData = async (isKid: boolean = false): Promise<AppData> => {
   const model = "gemini-3-flash-preview";
-  const prompt = isKid ? "API de música INFANTIL (JSON)." : "API de música estilo Netflix (JSON).";
+  const prompt = isKid ? "Crie uma lista de música infantil (JSON)." : "Crie uma lista de música estilo Netflix (JSON).";
 
   try {
     const ai = createAiClient();
@@ -32,14 +49,7 @@ export const fetchHomeData = async (isKid: boolean = false): Promise<AppData> =>
           properties: {
             hero: { 
               type: Type.OBJECT, 
-              properties: { 
-                title: {type: Type.STRING}, 
-                artist: {type: Type.STRING}, 
-                youtubeId: {type: Type.STRING}, 
-                description: {type: Type.STRING},
-                year: {type: Type.STRING}
-              }, 
-              required: ["title", "artist", "youtubeId", "description"] 
+              properties: { title: {type: Type.STRING}, artist: {type: Type.STRING}, youtubeId: {type: Type.STRING}, description: {type: Type.STRING} } 
             },
             categories: { 
               type: Type.ARRAY, 
@@ -47,25 +57,11 @@ export const fetchHomeData = async (isKid: boolean = false): Promise<AppData> =>
                 type: Type.OBJECT, 
                 properties: { 
                   title: {type: Type.STRING}, 
-                  items: { 
-                    type: Type.ARRAY, 
-                    items: { 
-                      type: Type.OBJECT, 
-                      properties: { 
-                        title: {type: Type.STRING}, 
-                        artist: {type: Type.STRING}, 
-                        youtubeId: {type: Type.STRING}, 
-                        description: {type: Type.STRING},
-                        duration: {type: Type.STRING},
-                        year: {type: Type.STRING}
-                      } 
-                    } 
-                  } 
+                  items: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { title: {type: Type.STRING}, artist: {type: Type.STRING}, youtubeId: {type: Type.STRING}, description: {type: Type.STRING} } } } 
                 } 
               } 
             }
-          },
-          required: ["hero", "categories"]
+          }
         }
       }
     });
@@ -76,8 +72,8 @@ export const fetchHomeData = async (isKid: boolean = false): Promise<AppData> =>
       ...rawData.hero,
       id: 'h-ia',
       matchScore: 99,
-      backdropUrl: getImageUrl(`${rawData.hero?.artist || 'music'} concert`, 1920, 1080),
-      thumbnailUrl: getImageUrl(`${rawData.hero?.title || 'music'} cover`, 1280, 720)
+      backdropUrl: getImageUrl(`${rawData.hero?.artist} concert`, 1920, 1080),
+      thumbnailUrl: getImageUrl(`${rawData.hero?.title} cover`, 1280, 720)
     };
 
     const categories: Category[] = (rawData.categories || []).map((cat: any, idx: number) => ({
@@ -95,11 +91,8 @@ export const fetchHomeData = async (isKid: boolean = false): Promise<AppData> =>
 
     return { hero, categories };
   } catch (error: any) {
-    if (error?.message?.includes('429')) {
-        (window as any).GEMINI_QUOTA_EXCEEDED = true;
-    }
     return { 
-        hero: { id: 'f', title: 'StreamFlow', artist: 'Sua Música', description: 'IA Offline.', youtubeId: '', thumbnailUrl: '', backdropUrl: '', matchScore: 0 }, 
+        hero: { id: 'f', title: 'StreamFlow', artist: 'Sua Música', description: 'Erro de conexão.', youtubeId: '', thumbnailUrl: '', backdropUrl: '', matchScore: 0 }, 
         categories: [] 
     };
   }
@@ -107,63 +100,42 @@ export const fetchHomeData = async (isKid: boolean = false): Promise<AppData> =>
 
 export const searchMusic = async (query: string): Promise<SearchResponse> => {
     try {
+        // 1. Pegar resultados reais do YouTube
+        const ytResults = await searchYouTube(query);
+        const ytItemsSummary = ytResults.map((v: any) => ({
+            id: v.id.videoId,
+            title: v.snippet.title,
+            channel: v.snippet.channelTitle
+        }));
+
+        // 2. Usar Gemini para organizar esses resultados reais
         const ai = createAiClient();
-        const prompt = `Analise a busca: "${query}". 
-        1. Identifique se é um nome de música ou um trecho de letra.
-        2. Agrupe os resultados por temas semânticos (ex: "Temas de Saudade", "Músicas para Treinar", "Resultados Diretos").
-        3. Identifique o gênero de cada música.
-        4. Retorne um JSON com "groups" (theme, items[]) e "allGenres" (string[]).
-        Cada item deve ter: title, artist, youtubeId, genre, lyricsSnippet (o trecho da letra que combina).`;
+        const prompt = `Organize estes resultados do YouTube para a busca "${query}": ${JSON.stringify(ytItemsSummary)}. 
+        Agrupe-os por "theme" (ex: Resultados Diretos, Covers, Relacionados) e identifique o gênero musical predominante.
+        Retorne JSON com "groups" e "allGenres".`;
 
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: prompt,
-            config: { 
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.OBJECT,
-                    properties: {
-                        groups: {
-                            type: Type.ARRAY,
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    theme: { type: Type.STRING },
-                                    items: {
-                                        type: Type.ARRAY,
-                                        items: {
-                                            type: Type.OBJECT,
-                                            properties: {
-                                                title: { type: Type.STRING },
-                                                artist: { type: Type.STRING },
-                                                youtubeId: { type: Type.STRING },
-                                                genre: { type: Type.STRING },
-                                                lyricsSnippet: { type: Type.STRING },
-                                                duration: { type: Type.STRING }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        allGenres: { type: Type.ARRAY, items: { type: Type.STRING } }
-                    }
-                }
-            }
+            config: { responseMimeType: "application/json" }
         });
         
-        const data = JSON.parse(response.text || '{"groups":[], "allGenres":[]}');
+        const data = JSON.parse(response.text || '{"groups":[]}');
         
         const processedGroups = (data.groups || []).map((group: any, gIdx: number) => ({
             theme: group.theme,
-            items: (group.items || []).map((i: any, iIdx: number) => ({
-                ...i,
-                id: `search-${gIdx}-${iIdx}`,
-                description: i.lyricsSnippet || '',
-                thumbnailUrl: getImageUrl(`${i.title} ${i.artist}`, 640, 360),
-                backdropUrl: '',
-                matchScore: 98
-            }))
+            items: (group.items || []).map((i: any, iIdx: number) => {
+                const ytMatch = ytResults.find((v: any) => v.id.videoId === i.youtubeId || v.snippet.title.includes(i.title));
+                return {
+                    ...i,
+                    id: `search-${gIdx}-${iIdx}`,
+                    youtubeId: ytMatch?.id.videoId || i.youtubeId,
+                    thumbnailUrl: ytMatch?.snippet.thumbnails.high.url || getImageUrl(i.title, 640, 360),
+                    description: i.lyricsSnippet || ytMatch?.snippet.description || '',
+                    backdropUrl: '',
+                    matchScore: 98
+                };
+            })
         }));
 
         return {
@@ -182,21 +154,18 @@ export const fetchArtistDetails = async (name: string): Promise<ArtistDetails> =
         const ai = createAiClient();
         const response = await ai.models.generateContent({
             model: "gemini-3-pro-preview",
-            contents: `Biografia detalhada de "${name}", discografia e curiosidades (JSON).`,
+            contents: `Biografia e discografia de "${name}" (JSON).`,
             config: { responseMimeType: "application/json" }
         });
         const data = JSON.parse(response.text || '{}');
         return {
-            id: name, name: data.name || name, bio: data.bio || 'Carregando biografia...',
-            backdropUrl: getImageUrl(`${name} live backdrop`, 1920, 1080), matchScore: 99, tags: data.tags || ["Artista"],
+            id: name, name: data.name || name, bio: data.bio || 'Biografia...',
+            backdropUrl: getImageUrl(`${name} live`, 1920, 1080), matchScore: 99, tags: data.tags || ["Artista"],
             albums: (data.albums || []).map((a:any, idx:number) => ({
                 id: `a-${idx}`, title: a.title, year: a.year || "2024",
                 songs: (a.songs || []).map((s:any, si:number) => ({
-                    description: s.description || '', 
-                    backdropUrl: '', 
-                    ...s, 
-                    id: `s-${idx}-${si}`, artist: name,
-                    thumbnailUrl: getImageUrl(`${s.title} album art`, 400, 225)
+                    description: '', backdropUrl: '', ...s, id: `s-${idx}-${si}`, artist: name,
+                    thumbnailUrl: getImageUrl(`${s.title} art`, 400, 225)
                 }))
             }))
         };
@@ -205,27 +174,21 @@ export const fetchArtistDetails = async (name: string): Promise<ArtistDetails> =
     }
 };
 
-export const fetchRecommendations = async (history: MusicItem[], isKid: boolean): Promise<MusicItem[]> => {
+export const fetchRecommendations = async (history: MusicItem[]): Promise<MusicItem[]> => {
   if (history.length === 0) return [];
   try {
     const ai = createAiClient();
-    const historySummary = history.slice(0, 3).map(h => `${h.title} - ${h.artist}`).join(", ");
-    const prompt = `Sugira 10 músicas baseadas em: [${historySummary}]. JSON com lista "items": title, artist, youtubeId, genre.`;
-
+    const prompt = `Sugira 10 músicas baseadas em: ${history.map(h => h.title).join(", ")}. JSON com lista "items": title, artist, youtubeId.`;
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: { responseMimeType: "application/json" }
     });
-
     const data = JSON.parse(response.text || '{"items":[]}');
     return (data.items || []).map((i: any, idx: number) => ({
-      ...i, 
-      id: `rec-${idx}`, 
-      matchScore: 95 + Math.floor(Math.random() * 5),
-      thumbnailUrl: getImageUrl(`${i.title} ${i.artist}`, 640, 360),
-      description: '', 
-      backdropUrl: ''
+      ...i, id: `rec-${idx}`, matchScore: 95,
+      thumbnailUrl: getImageUrl(`${i.title}`, 640, 360),
+      description: '', backdropUrl: ''
     }));
   } catch (e) { return []; }
 };
