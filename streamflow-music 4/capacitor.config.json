@@ -1,0 +1,7 @@
+
+{
+  "appId": "com.streamflow.music",
+  "appName": "StreamFlow Music",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}
